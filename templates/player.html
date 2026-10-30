@@ -1,0 +1,77 @@
+
+{% extends 'base.html' %}
+{% block content %}
+
+<a class="back" href="{{ url_for('players_directory') }}">← All players</a>
+
+<div class="eyebrow">FBF PLAYER PROFILE</div>
+<h1>{{ player.name }}</h1>
+
+<p class="sub">
+  {% if player.team_id %}
+  <a class="player-link" href="{{ url_for('team_detail', team_id=player.team_id) }}">
+    {{ player.team }}
+  </a>
+  {% else %}
+  Free Agent · Not assigned to a team
+  {% endif %}
+</p>
+
+<form class="filters" method="get">
+  <label>
+    Season
+    <select name="season">
+      <option value="{{ season }}" selected hidden>{{ season }}</option>
+      {% for s in seasons %}
+      <option value="{{ s.season }}" {% if s.season == season %}selected{% endif %}>
+        {{ s.season }}
+      </option>
+      {% endfor %}
+    </select>
+  </label>
+  <button class="btn" type="submit">View season</button>
+</form>
+
+<div class="eyebrow">{{ season }} · VERIFIED GAME STATS</div>
+
+<div class="profile-stats">
+  {% for title,value in [
+    ('Games',stats.games),
+    ('Goals',stats.goals),
+    ('Assists',stats.assists),
+    ('Saves',stats.saves),
+    ('Shots',stats.shots),
+    ('Avg. Score',stats.avg_score)
+  ] %}
+  <div class="card">
+    <div class="muted">{{ title }}</div>
+    <div class="number">{{ value }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="two">
+  <section class="panel padded">
+    <h2>Career totals</h2>
+    <div class="line">Games <strong class="profile-right">{{ career.games }}</strong></div>
+    <div class="line">Goals <strong class="profile-right">{{ career.goals }}</strong></div>
+    <div class="line">Assists <strong class="profile-right">{{ career.assists }}</strong></div>
+    <div class="line">Saves <strong class="profile-right">{{ career.saves }}</strong></div>
+  </section>
+
+  <section class="panel padded">
+    <h2>Recent verified matches</h2>
+    {% for m in recent %}
+    <a class="line" href="{{ url_for('match_detail', match_id=m.id) }}">
+      {{ m.blue }}
+      <strong class="accent">{{ m.blue_wins }}–{{ m.orange_wins }}</strong>
+      {{ m.orange }}
+      <span class="muted">· {{ m.season }}</span>
+    </a>
+    {% else %}
+    <p class="sub">No verified matches yet. Stats will appear after matches are imported and approved.</p>
+    {% endfor %}
+  </section>
+</div>
+
+{% endblock %}
