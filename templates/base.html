@@ -1,1 +1,39 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>FBF Stats Hub</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head><body><header class="top"><a class="brand" href="{{ url_for('dashboard') if session.get('user') else url_for('index') }}"><span class="mark">◆</span> FBF <span class="muted">STATS HUB</span></a>{% if session.get('user') %}<nav><a href="{{ url_for('dashboard') }}">Dashboard</a><a href="{{ url_for('leaderboard') }}">Leaderboards</a><a href="{{ url_for('teams') }}">Teams</a></nav><div class="account"><span>{{ session['user']['name'] }}</span><form action="{{ url_for('logout') }}" method="post"><button class="quiet" type="submit">Sign out</button></form></div>{% endif %}</header><main>{% block content %}{% endblock %}</main><footer>FULL BOOST FRONTIER · Verified competitive statistics</footer></body></html>
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FBF Stats Hub</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="{{ url_for('dashboard') if session.get('user') else url_for('index') }}">
+      <span class="mark">◆</span> FBF <span class="muted">STATS HUB</span>
+    </a>
+
+    {% if session.get('user') %}
+    <nav>
+      <a href="{{ url_for('dashboard') }}">Dashboard</a>
+      <a href="{{ url_for('leaderboard') }}">Leaderboards</a>
+      <a href="{{ url_for('players_directory') }}">Players</a>
+      <a href="{{ url_for('teams') }}">Teams</a>
+    </nav>
+
+    <div class="account">
+      <span>{{ session['user']['name'] }}</span>
+      <form action="{{ url_for('logout') }}" method="post">
+        <button class="quiet" type="submit">Sign out</button>
+      </form>
+    </div>
+    {% endif %}
+  </header>
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer>FULL BOOST FRONTIER · Verified competitive statistics</footer>
+</body>
+</html>
