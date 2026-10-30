@@ -20,45 +20,58 @@ CLIENT_SECRET = os.environ.get('DISCORD_CLIENT_SECRET', '')
 GUILD_ID = os.environ.get('FBF_GUILD_ID') or os.environ.get('DISCORD_GUILD_ID', '1382141392071163955')
 REDIRECT_URI = os.environ.get('DISCORD_REDIRECT_URI', 'http://127.0.0.1:5000/callback')
 DB = Path(os.environ.get('FBF_DATABASE', str(BASE / 'data' / 'fbf_stats.sqlite3') if os.environ.get('RENDER') else str(BASE.parent / 'fbf_stats.sqlite3'))).resolve()
-SYNC_TOKEN = os.environ.get('FBF_SYNC_TOKEN', '')
+SYNC_TOKEN = os.environ.get('FBF_SYNC_TOKEN', '').strip()
 SYNC_LOCK = threading.Lock()
 API = 'https://discord.com/api/v10'
 
 
 @app.post('/internal/sync-database')
 def sync_database():
-    """Receive a SQLite snapshot from the trusted bot owner (not public site users)."""
-    supplied = request.headers.get('X-FBF-Sync-Token', '')
-    if not SYNC_TOKEN or len(SYNC_TOKEN) < 32 or not hmac.compare_digest(supplied, SYNC_TOKEN):
-        abort(403)
-    if request.content_length is None or request.content_length > 50 * 1024 * 1024:
+    """Accept an authenticated SQLite snapshot from the FBF bot."""
+    supplied = request.headers.get('X-FBF-Sync-Token', '').strip()
+    if len(SYNC_TOKEN) < 32 or not hmac.compare_digest(supplied, SYNC_TOKEN):
+        app.logger.warning('FBF sync rejected: authentication failed')
+        abort(403, description='Invalid sync credentials.')
+
+    limit = 50 * 1024 * 1024
+    if request.content_length is None or request.content_length > limit:
         abort(413)
-    if not request.is_json and request.mimetype != 'application/octet-stream':
-        abort(415)
     if request.mimetype != 'application/octet-stream':
         abort(415)
+
     with SYNC_LOCK:
         DB.parent.mkdir(parents=True, exist_ok=True)
         fd, tmpname = tempfile.mkstemp(prefix='.fbf-snapshot-', suffix='.sqlite3', dir=DB.parent)
         try:
             with os.fdopen(fd, 'wb') as out:
+                total = 0
                 while True:
                     block = request.stream.read(1024 * 1024)
                     if not block:
                         break
+                    total += len(block)
+                    if total > limit:
+                        abort(413)
                     out.write(block)
-            with sqlite3.connect(f'file:{Path(tmpname).as_posix()}?mode=ro', uri=True) as con:
+
+            con = sqlite3.connect(Path(tmpname).as_uri() + '?mode=ro', uri=True)
+            try:
                 if con.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
-                    abort(400, 'Invalid SQLite snapshot')
+                    abort(400, description='Invalid SQLite snapshot')
                 required = {'teams', 'players', 'matches', 'game_stats', 'config', 'team_divisions'}
                 actual = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                 if not required.issubset(actual):
-                    abort(400, 'Snapshot is missing required FBF tables')
+                    abort(400, description='Snapshot missing required FBF tables')
+                players = con.execute('SELECT COUNT(*) FROM players').fetchone()[0]
+            finally:
+                con.close()
+
             os.replace(tmpname, DB)
         finally:
             if os.path.exists(tmpname):
                 os.unlink(tmpname)
-    return {'ok': True, 'message': 'Snapshot updated'}
+
+    return {'ok': True, 'message': f'Snapshot updated ({players} players)'}
 
 
 def db():
@@ -70,8 +83,11 @@ def db():
 
 
 def query(sql, args=()):
-    with db() as conn:
+    conn = db()
+    try:
         return [dict(row) for row in conn.execute(sql, args).fetchall()]
+    finally:
+        conn.close()
 
 
 def current_season():
