@@ -1,0 +1,52 @@
+
+{% extends 'base.html' %}
+{% block content %}
+
+<div class="eyebrow">FBF PLAYER DATABASE</div>
+<h1>Player <em>Directory</em></h1>
+<p class="sub">{{ season }} · Registered players, including free agents</p>
+
+<form class="filters" method="get">
+  <label>
+    Search player
+    <input class="fbf-input" name="q" value="{{ search }}"
+           placeholder="Search by name" maxlength="80">
+  </label>
+  <button class="btn" type="submit">Search</button>
+  {% if search %}
+  <a class="back" href="{{ url_for('players_directory') }}">Clear</a>
+  {% endif %}
+</form>
+
+<div class="panel scroll">
+  <table>
+    <thead>
+      <tr>
+        <th>PLAYER</th>
+        <th>TEAM</th>
+        <th>GAMES</th>
+        <th>GOALS</th>
+        <th>ASSISTS</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in rows %}
+      <tr>
+        <td>
+          <a class="player-link" href="{{ url_for('player_detail', player_id=p.id) }}">
+            <strong>{{ p.name }}</strong> →
+          </a>
+        </td>
+        <td>{{ p.team or 'Free Agent' }}</td>
+        <td>{{ p.games }}</td>
+        <td class="accent">{{ p.goals }}</td>
+        <td>{{ p.assists }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">No players found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
