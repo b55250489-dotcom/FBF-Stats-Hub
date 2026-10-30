@@ -1,4 +1,4 @@
-import os, secrets, sqlite3
+import os, secrets, sqlite3, tempfile, hmac, threading
 from pathlib import Path
 from functools import wraps
 from urllib.parse import urlencode
@@ -13,19 +13,57 @@ app = Flask(__name__)
 app.secret_key = os.environ.get('SESSION_SECRET', '')
 if len(app.secret_key) < 32:
     raise RuntimeError('Set SESSION_SECRET in .env to a random string of at least 32 characters.')
-app.config.update(SESSION_TYPE='filesystem', SESSION_FILE_DIR=str(BASE / '.sessions'), SESSION_PERMANENT=True, SESSION_USE_SIGNER=True, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_SECURE=os.environ.get('COOKIE_SECURE', 'false').lower() == 'true', PERMANENT_SESSION_LIFETIME=3600)
+app.config.update(SESSION_TYPE='filesystem', SESSION_FILE_DIR=str(BASE / '.sessions'), SESSION_PERMANENT=True, SESSION_USE_SIGNER=True, SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_SECURE=os.environ.get('COOKIE_SECURE', 'true' if os.environ.get('RENDER') else 'false').lower() == 'true', PERMANENT_SESSION_LIFETIME=3600)
 Session(app)
 CLIENT_ID = os.environ.get('DISCORD_CLIENT_ID', '1565174387320029345')
 CLIENT_SECRET = os.environ.get('DISCORD_CLIENT_SECRET', '')
-GUILD_ID = os.environ.get('FBF_GUILD_ID', '1382141392071163955')
+GUILD_ID = os.environ.get('FBF_GUILD_ID') or os.environ.get('DISCORD_GUILD_ID', '1382141392071163955')
 REDIRECT_URI = os.environ.get('DISCORD_REDIRECT_URI', 'http://127.0.0.1:5000/callback')
-DB = Path(os.environ.get('FBF_DATABASE', str(BASE.parent / 'fbf_stats.sqlite3'))).resolve()
+DB = Path(os.environ.get('FBF_DATABASE', str(BASE / 'data' / 'fbf_stats.sqlite3') if os.environ.get('RENDER') else str(BASE.parent / 'fbf_stats.sqlite3'))).resolve()
+SYNC_TOKEN = os.environ.get('FBF_SYNC_TOKEN', '')
+SYNC_LOCK = threading.Lock()
 API = 'https://discord.com/api/v10'
+
+
+@app.post('/internal/sync-database')
+def sync_database():
+    """Receive a SQLite snapshot from the trusted bot owner (not public site users)."""
+    supplied = request.headers.get('X-FBF-Sync-Token', '')
+    if not SYNC_TOKEN or len(SYNC_TOKEN) < 32 or not hmac.compare_digest(supplied, SYNC_TOKEN):
+        abort(403)
+    if request.content_length is None or request.content_length > 50 * 1024 * 1024:
+        abort(413)
+    if not request.is_json and request.mimetype != 'application/octet-stream':
+        abort(415)
+    if request.mimetype != 'application/octet-stream':
+        abort(415)
+    with SYNC_LOCK:
+        DB.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmpname = tempfile.mkstemp(prefix='.fbf-snapshot-', suffix='.sqlite3', dir=DB.parent)
+        try:
+            with os.fdopen(fd, 'wb') as out:
+                while True:
+                    block = request.stream.read(1024 * 1024)
+                    if not block:
+                        break
+                    out.write(block)
+            with sqlite3.connect(f'file:{Path(tmpname).as_posix()}?mode=ro', uri=True) as con:
+                if con.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+                    abort(400, 'Invalid SQLite snapshot')
+                required = {'teams', 'players', 'matches', 'game_stats', 'config', 'team_divisions'}
+                actual = {row[0] for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                if not required.issubset(actual):
+                    abort(400, 'Snapshot is missing required FBF tables')
+            os.replace(tmpname, DB)
+        finally:
+            if os.path.exists(tmpname):
+                os.unlink(tmpname)
+    return {'ok': True, 'message': 'Snapshot updated'}
 
 
 def db():
     if not DB.is_file():
-        abort(503, description='Stats database not found. Check FBF_DATABASE in .env.')
+        abort(503, description='FBF stats have not been synced to the website yet. Configure FBF_SYNC_TOKEN and upload a database snapshot from the bot computer.')
     conn = sqlite3.connect(f'file:{DB.as_posix()}?mode=ro', uri=True, timeout=5)
     conn.row_factory = sqlite3.Row
     return conn
